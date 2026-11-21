@@ -117,6 +117,45 @@ h1,h2{font-family:var(--font-display);margin:0;line-height:1.15;text-wrap:balanc
 .gate .card{width:min(100%,380px);display:flex;flex-direction:column;gap:14px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;font-size:.88rem;z-index:50;max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translate(-50%,24px);opacity:.6}to{transform:translate(-50%,0);opacity:1}}}
+.ghost{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-weight:600;min-height:46px}
+
+/* ---- laporan PDF ---- */
+.preview{position:fixed;inset:0;z-index:60;background:#DDE5E3;overflow:auto;-webkit-overflow-scrolling:touch}
+.pvbar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;background:var(--surface);color:var(--fg);border-bottom:1px solid var(--line);
+  padding:10px max(12px,env(safe-area-inset-right,0px)) 10px max(12px,env(safe-area-inset-left,0px));padding-top:calc(10px + env(safe-area-inset-top,0px))}
+.pvbar .save{padding:11px 16px;font-size:.92rem}
+.pvbar .hint{flex-basis:100%;font-size:.75rem;color:var(--muted);margin:0}
+.paper{background:#fff;color:#111;width:min(794px,calc(100% - 24px));margin:14px auto 28px;padding:22px 20px;font-family:var(--font-body);font-size:12px;line-height:1.4;
+  box-shadow:0 2px 10px rgba(0,0,0,.18);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.paper h1{font-size:20px;margin:0 0 2px;color:#0B6E63}
+.paper .sub{color:#555;margin:0 0 12px}
+.paper h2{font-size:13px;margin:16px 0 6px;color:#111;border-bottom:1px solid #cfd8d6;padding-bottom:3px}
+.paper .kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.paper .kpi div{border:1px solid #cfd8d6;border-radius:6px;padding:8px;min-width:0}
+.paper .kpi span{display:block;color:#555;font-size:10px}
+.paper .kpi b{font-size:13px;overflow-wrap:anywhere}
+.paper table{width:100%;border-collapse:collapse}
+.paper th,.paper td{padding:4px 6px;border-bottom:1px solid #e1e8e6;text-align:left;vertical-align:top}
+.paper th{background:#eef3f2;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.paper td.r,.paper th.r{text-align:right;white-space:nowrap}
+.paper tr{page-break-inside:avoid}
+.paper thead{display:table-header-group}
+.paper tfoot td{font-weight:700;border-top:2px solid #111;border-bottom:0}
+.paper .bar{height:6px;border-radius:3px;background:#e6eeec;min-width:60px}
+.paper .bar i{display:block;height:100%;border-radius:3px}
+.paper .pos{color:#0B7A4B} .paper .neg{color:#B8431F}
+.paper .tblwrap{overflow-x:auto}
+.paper .foot{margin-top:16px;color:#666;font-size:10px}
+@media (max-width:520px){.paper .kpi{grid-template-columns:1fr 1fr}}
+@media print{
+  @page{size:A4;margin:14mm}
+  html,body{background:#fff!important}
+  body{padding:0!important}
+  body>*:not(#preview){display:none!important}
+  .preview{position:static!important;overflow:visible!important;background:#fff!important}
+  .pvbar{display:none!important}
+  .paper{width:auto!important;margin:0!important;padding:0!important;box-shadow:none!important}
+}
 </style>
 </head>
 <body>
@@ -140,6 +179,8 @@ h1,h2{font-family:var(--font-display);margin:0;line-height:1.15;text-wrap:balanc
     <button data-who="Apapa" aria-pressed="false">Apapa</button>
     <button data-who="Amama" aria-pressed="false">Amama</button>
   </div>
+
+  <button class="ghost" id="pdfBtn" type="button">Laporan PDF bulan ini</button>
 
   <section class="card balance" id="summary"></section>
   <section class="card" id="debt"></section>
@@ -178,6 +219,15 @@ h1,h2{font-family:var(--font-display);margin:0;line-height:1.15;text-wrap:balanc
     <button class="save" type="submit">Masuk</button>
   </div>
 </form>
+
+<div class="preview" id="preview" hidden>
+  <div class="pvbar">
+    <button type="button" class="iconbtn" id="pvClose" aria-label="Tutup laporan">✕</button>
+    <button type="button" class="save" id="pvPrint">Simpan sebagai PDF</button>
+    <p class="hint">Di layar cetak yang terbuka, pilih tujuan “Simpan sebagai PDF”. Jika tidak muncul, buka aplikasi ini di Chrome.</p>
+  </div>
+  <article class="paper" id="paper"></article>
+</div>
 
 <div class="toast" id="toast" hidden></div>
 
@@ -404,6 +454,89 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
     .catch(function(){if(gone)st.txs.push(gone);toast('Gagal menghapus, coba lagi.')})
     .then(function(){busy--;refresh()});
   }
+
+  /* ---------- laporan PDF bulanan ---------- */
+  var HEX={'--c1':'#2F6FDE','--c2':'#7A4FD6','--c3':'#C27A00','--c4':'#1E9E6A','--c5':'#0B8FA3','--c6':'#D2487A','--c7':'#C2592B','--c8':'#6B7A1F','--in':'#0B7A4B','--muted':'#6B7B78'};
+  var nf=function(n){return Math.round(n).toLocaleString('id-ID')};
+
+  function buildReport(){
+    var rows=view().slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:(a.ts||0)-(b.ts||0)});
+    var inc=0,exp=0,saved=0,per={},byP={Apapa:{i:0,o:0},Amama:{i:0,o:0}};
+    rows.forEach(function(t){
+      var a=+t.amount||0;
+      if(t.type==='in')inc+=a;else{exp+=a;per[t.cat]=(per[t.cat]||0)+a;if(SAVED.indexOf(t.cat)>=0)saved+=a}
+      if(byP[t.by]){if(t.type==='in')byP[t.by].i+=a;else byP[t.by].o+=a}
+    });
+    var dIn=0,dOut=0,mIn=0,mOut=0;
+    st.txs.forEach(function(t){
+      if(t.cat!=='utang')return;
+      if(st.who!=='all'&&t.by!==st.who)return;
+      var a=+t.amount||0,isIn=t.type==='in',inMonth=t.date&&t.date.slice(0,7)===st.month;
+      if(isIn){dIn+=a;if(inMonth)mIn+=a}else{dOut+=a;if(inMonth)mOut+=a}
+    });
+    var dl=dIn-dOut,left=inc-exp;
+    var who=st.who==='all'?'Apapa & Amama':st.who;
+    var h=[];
+    h.push('<h1>Catatan Apapa &amp; Amama Yasmin</h1>');
+    h.push('<p class="sub">Laporan bulanan <b>'+esc(monthLabel())+'</b> · Pencatat: '+esc(who)+'</p>');
+
+    h.push('<div class="kpi">'+
+      '<div><span>Pemasukan</span><b class="pos">Rp '+nf(inc)+'</b></div>'+
+      '<div><span>Pengeluaran</span><b class="neg">Rp '+nf(exp)+'</b></div>'+
+      '<div><span>Sisa bulan ini</span><b class="'+(left<0?'neg':'')+'">'+(left<0?'−':'')+'Rp '+nf(Math.abs(left))+'</b></div>'+
+      '<div><span>Ditabung &amp; diinvestasikan</span><b>Rp '+nf(saved)+(inc>0?' ('+Math.round(saved/inc*100)+'%)':'')+'</b></div>'+
+    '</div>');
+
+    if(st.who==='all'){
+      h.push('<h2>Per orang</h2><table><thead><tr><th>Pencatat</th><th class="r">Pemasukan (Rp)</th><th class="r">Pengeluaran (Rp)</th></tr></thead><tbody>'+
+        ['Apapa','Amama'].map(function(n){return '<tr><td>'+n+'</td><td class="r">'+nf(byP[n].i)+'</td><td class="r">'+nf(byP[n].o)+'</td></tr>'}).join('')+
+      '</tbody></table>');
+    }
+
+    var ordered=OUT.filter(function(c){return per[c.id]>0});
+    Object.keys(per).forEach(function(k){if(!OUT.some(function(c){return c.id===k}))ordered.push({id:k,label:k,c:'--muted'})});
+    ordered.sort(function(a,b){return per[b.id]-per[a.id]});
+    h.push('<h2>Pengeluaran per kategori</h2>');
+    if(!ordered.length){h.push('<p>Tidak ada pengeluaran pada bulan ini.</p>')}
+    else{
+      h.push('<table><thead><tr><th>Kategori</th><th class="r">Jumlah (Rp)</th><th class="r">%</th><th style="width:28%"></th></tr></thead><tbody>'+
+        ordered.map(function(c){var p=per[c.id]/exp*100;return '<tr><td>'+esc(c.label)+'</td><td class="r">'+nf(per[c.id])+'</td><td class="r">'+Math.round(p)+'%</td><td><div class="bar"><i style="width:'+p+'%;background:'+(HEX[c.c]||'#6B7B78')+'"></i></div></td></tr>'}).join('')+
+      '</tbody></table>');
+    }
+
+    if(dIn||dOut){
+      h.push('<h2>Utang</h2><div class="kpi">'+
+        '<div><span>'+(dl>0?'Sisa utang (semua bulan)':'Status utang')+'</span><b class="'+(dl>0?'neg':'pos')+'">'+(dl>0?'Rp '+nf(dl):(dl<0?'Lebih bayar Rp '+nf(-dl):'Lunas'))+'</b></div>'+
+        '<div><span>Pinjaman masuk bulan ini</span><b>Rp '+nf(mIn)+'</b></div>'+
+        '<div><span>Dibayar bulan ini</span><b>Rp '+nf(mOut)+'</b></div>'+
+        '<div><span>Total pinjaman / dibayar</span><b>Rp '+nf(dIn)+' / '+nf(dOut)+'</b></div>'+
+      '</div>');
+    }
+
+    h.push('<h2>Daftar transaksi ('+rows.length+')</h2>');
+    if(!rows.length){h.push('<p>Tidak ada transaksi pada bulan ini.</p>')}
+    else{
+      h.push('<div class="tblwrap"><table><thead><tr><th>Tgl</th><th>Uraian</th><th>Kategori</th><th>Oleh</th><th class="r">Masuk (Rp)</th><th class="r">Keluar (Rp)</th></tr></thead><tbody>'+
+        rows.map(function(t){
+          var c=catOf(t),a=+t.amount||0,isIn=t.type==='in';
+          return '<tr><td>'+esc((t.date||'').slice(8,10)+'/'+(t.date||'').slice(5,7))+'</td><td>'+esc(t.note||'-')+'</td><td>'+esc(c.label)+'</td><td>'+esc(t.by||'')+'</td><td class="r pos">'+(isIn?nf(a):'')+'</td><td class="r neg">'+(isIn?'':nf(a))+'</td></tr>';
+        }).join('')+
+      '</tbody><tfoot><tr><td colspan="4">Total</td><td class="r pos">'+nf(inc)+'</td><td class="r neg">'+nf(exp)+'</td></tr></tfoot></table></div>');
+    }
+
+    h.push('<p class="foot">Dibuat '+esc(new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}))+' dari aplikasi Catatan Apapa &amp; Amama Yasmin.</p>');
+    return h.join('');
+  }
+
+  $('pdfBtn').onclick=function(){$('paper').innerHTML=buildReport();$('preview').hidden=false;$('preview').scrollTop=0};
+  $('pvClose').onclick=function(){$('preview').hidden=true};
+  $('pvPrint').onclick=function(){
+    var old=document.title;
+    document.title='Laporan Keuangan '+monthLabel()+' - Catatan Yasmin';
+    var back=function(){document.title=old;window.removeEventListener('afterprint',back)};
+    window.addEventListener('afterprint',back);
+    setTimeout(function(){window.print()},50);
+  };
 
   /* ---------- kejadian ---------- */
   $('prev').onclick=function(){shiftMonth(-1)};
