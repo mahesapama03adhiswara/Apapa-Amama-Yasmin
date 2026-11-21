@@ -221,8 +221,26 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
 
   /* ---------- kategori & konversi baris Sheets ---------- */
   function catOf(t){var list=t.type==='in'?IN:OUT;for(var i=0;i<list.length;i++)if(list[i].id===t.cat)return list[i];return {id:t.cat,label:t.cat||'Lainnya',c:'--muted'}}
-  function idFromLabel(type,label){var list=type==='in'?IN:OUT;for(var i=0;i<list.length;i++)if(list[i].label===label)return list[i].id;return label}
-  function fromRow(r){var type=r.jenis==='Masuk'?'in':'out';return {id:r.id,date:r.tanggal,type:type,cat:idFromLabel(type,r.kategori),amount:Number(r.jumlah)||0,note:r.catatan,by:r.oleh,ts:Number(r.waktu)||0}}
+  function idFromLabel(type,label){
+    var list=type==='in'?IN:OUT,l=String(label||'').trim().toLowerCase();
+    for(var i=0;i<list.length;i++)if(list[i].label.toLowerCase()===l||list[i].id===l)return list[i].id;
+    if(l==='utang'||l==='bayar utang'||l==='utang (pinjaman masuk)')return 'utang';
+    return label;
+  }
+  function normDate(s){
+    s=String(s==null?'':s).trim();
+    var m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+    if(m)return m[1]+'-'+pad(+m[2])+'-'+pad(+m[3]);
+    m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+    if(m)return m[3]+'-'+pad(+m[2])+'-'+pad(+m[1]);
+    return s;
+  }
+  function normAmount(v){if(typeof v==='number')return v;var d=String(v==null?'':v).replace(/[^\d-]/g,'');return d?parseInt(d,10):0}
+  function fromRow(r,i){
+    var j=String(r.jenis||'').trim().toLowerCase();
+    var type=(j==='masuk'||j==='pemasukan'||j==='in'||j==='income')?'in':'out';
+    return {id:String(r.id||('baris'+i)),date:normDate(r.tanggal),type:type,cat:idFromLabel(type,r.kategori),amount:normAmount(r.jumlah),note:r.catatan,by:String(r.oleh||'').trim(),ts:Number(r.waktu)||0};
+  }
   function toRow(t){return {id:t.id,tanggal:t.date,jenis:t.type==='in'?'Masuk':'Keluar',kategori:catOf(t).label,jumlah:t.amount,catatan:t.note,oleh:t.by,waktu:t.ts}}
 
   /* ---------- API Google Sheets ---------- */
@@ -258,7 +276,17 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
     if(!configured()){el.classList.add('warn');tx.textContent='Belum diatur'}
     else if(st.mode==='wait'){tx.textContent='Menyambung…'}
     else if(st.mode==='slow'){el.classList.add('warn');tx.textContent='Tidak tersambung'}
-    else{el.classList.add('ok');tx.textContent='Tersinkron'}
+    else{el.classList.add('ok');tx.textContent='Tersinkron · '+st.txs.length+' catatan'}
+  }
+
+  function hintHtml(){
+    if(!st.txs.length)return '';
+    var latest='';
+    st.txs.forEach(function(t){if(/^\d{4}-\d{2}/.test(t.date||'')&&t.date>latest)latest=t.date});
+    if(!latest)return '<div class="banner">Ada '+st.txs.length+' baris di Sheet, tetapi tanggalnya tidak terbaca. Pakai format 2026-11-21.</div>';
+    var m=latest.slice(0,7),p=m.split('-');
+    var lbl=new Date(+p[0],+p[1]-1,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});
+    return '<div class="banner">Ada '+st.txs.length+' catatan di bulan lain. <button class="chip" data-goto="'+m+'" style="margin-top:8px">Lihat '+esc(lbl)+'</button></div>';
   }
 
   function render(){
@@ -307,7 +335,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
 
     var html='';
     if(!rows.length){
-      html='<div class="list"><div class="empty"><b>Belum ada catatan</b>Tekan “Catat transaksi” untuk memasukkan gaji, belanja bahan pokok, atau setoran tabungan Yasmin.</div></div>';
+      html=hintHtml()+'<div class="list"><div class="empty"><b>Belum ada catatan</b>Tekan “Catat transaksi” untuk memasukkan gaji, belanja bahan pokok, atau setoran tabungan Yasmin.</div></div>';
     }else{
       var groups=[],cur=null;
       rows.forEach(function(t){if(!cur||cur.d!==t.date){cur={d:t.date,items:[]};groups.push(cur)}cur.items.push(t)});
@@ -392,6 +420,8 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
   window.addEventListener('online',refresh);
   setInterval(function(){if(!document.hidden)refresh()},20000);
   $('txs').onclick=function(e){
+    var g=e.target.closest('[data-goto]');
+    if(g){st.month=g.dataset.goto;render();return}
     var o=e.target.closest('[data-open]');
     if(o){var id=o.dataset.open;st.open=st.open===id?null:id;st.confirm=null;render();return}
     var a=e.target.closest('[data-ask]');if(a){st.confirm=a.dataset.ask;render();return}
