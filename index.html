@@ -229,17 +229,20 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
   }
   function normDate(s){
     s=String(s==null?'':s).trim();
-    var m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+    var m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if(m)return m[1]+'-'+pad(+m[2])+'-'+pad(+m[3]);
-    m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+    m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
     if(m)return m[3]+'-'+pad(+m[2])+'-'+pad(+m[1]);
+    // Format lain (misalnya "Sat Nov 21 2026 00:00:00 GMT+0700" atau 2026-11-21T00:00:00): baca sebagai tanggal lalu ambil tanggal lokal.
+    var d=new Date(s);
+    if(s&&!isNaN(d.getTime()))return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
     return s;
   }
   function normAmount(v){if(typeof v==='number')return v;var d=String(v==null?'':v).replace(/[^\d-]/g,'');return d?parseInt(d,10):0}
   function fromRow(r,i){
     var j=String(r.jenis||'').trim().toLowerCase();
     var type=(j==='masuk'||j==='pemasukan'||j==='in'||j==='income')?'in':'out';
-    return {id:String(r.id||('baris'+i)),date:normDate(r.tanggal),type:type,cat:idFromLabel(type,r.kategori),amount:normAmount(r.jumlah),note:r.catatan,by:String(r.oleh||'').trim(),ts:Number(r.waktu)||0};
+    return {id:String(r.id||('baris'+i)),raw:String(r.tanggal),date:normDate(r.tanggal),type:type,cat:idFromLabel(type,r.kategori),amount:normAmount(r.jumlah),note:r.catatan,by:String(r.oleh||'').trim(),ts:Number(r.waktu)||0};
   }
   function toRow(t){return {id:t.id,tanggal:t.date,jenis:t.type==='in'?'Masuk':'Keluar',kategori:catOf(t).label,jumlah:t.amount,catatan:t.note,oleh:t.by,waktu:t.ts}}
 
@@ -283,7 +286,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxy0NdHOLoqMilRZVXAYFMSeT
     if(!st.txs.length)return '';
     var latest='';
     st.txs.forEach(function(t){if(/^\d{4}-\d{2}/.test(t.date||'')&&t.date>latest)latest=t.date});
-    if(!latest)return '<div class="banner">Ada '+st.txs.length+' baris di Sheet, tetapi tanggalnya tidak terbaca. Pakai format 2026-11-21.</div>';
+    if(!latest)return '<div class="banner">Ada '+st.txs.length+' baris di Sheet, tetapi tanggalnya tidak terbaca. Isi kolom tanggal yang diterima: <b>'+esc(st.txs[0].raw)+'</b></div>';
     var m=latest.slice(0,7),p=m.split('-');
     var lbl=new Date(+p[0],+p[1]-1,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});
     return '<div class="banner">Ada '+st.txs.length+' catatan di bulan lain. <button class="chip" data-goto="'+m+'" style="margin-top:8px">Lihat '+esc(lbl)+'</button></div>';
